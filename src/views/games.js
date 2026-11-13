@@ -215,7 +215,7 @@ function renderReport() {
       <p class="muted">Serious mistakes (blunders and mistakes) per 100 of your moves.</p>
     </div>
     <div><h2>Your openings</h2>
-      <table><thead><tr><th>Opening</th><th>As</th><th>Games</th><th>Score</th><th title="Engine evaluation after 12 moves, from your side">After 12 moves</th></tr></thead><tbody>
+      <table><thead><tr><th>Opening</th><th>As</th><th>Games</th><th>Score</th><th title="Engine evaluation after 12 moves, from your side">Move 12</th></tr></thead><tbody>
       ${openings.slice(0, 8).map((o) => `<tr><td>${esc(o.name)}</td><td>${o.color === 'w' ? 'White' : 'Black'}</td><td>${o.games}</td><td>${pct(o.score)}</td><td class="${o.eval < -50 ? 'neg' : o.eval > 50 ? 'pos' : ''}">${formatScore(Math.round(o.eval))}</td></tr>`).join('')}
       </tbody></table>
     </div>

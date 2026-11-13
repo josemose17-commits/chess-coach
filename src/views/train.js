@@ -28,10 +28,11 @@ export function init(el) {
   <section class="panel">
     <div class="bench">
       <div class="bench-board"><div id="tBoard"></div></div>
-      <div class="bench-side"><div id="tSetup"></div><div id="tPanel"></div></div>
+      <div class="bench-side"><button type="button" class="back" id="tBack" hidden>← Training options</button><div id="tSetup"></div><div id="tPanel"></div></div>
     </div>
   </section>`;
   board = new Board($('#tBoard'));
+  $('#tBack').onclick = () => { stop(); SETUP[current](); };
   selectTab = tabs(el, (name) => { current = name; stop(); SETUP[name](); });
   route('train-open', (arg = {}) => {
     const tab = { openings: 'openings', endgame: 'endgame', tactics: 'middle', middlegame: 'middle' }[arg.tab] || 'openings';
@@ -50,10 +51,17 @@ function stop() {
   $('#tPanel').onclick = null;
   board.set({ fen: new Chess().fen(), arrows: [], lastMove: null, movable: null, orientation: 'w' });
   $('#tPanel').innerHTML = '';
+  focus(false);
+}
+// While a drill or puzzle is running, fold the options away so the coach sits next to the board.
+function focus(on) {
+  $('#tSetup').hidden = on;
+  $('#tBack').hidden = !on;
 }
 function play(opts) {
   stop();
   $('#tPanel').innerHTML = sessionMarkup();
+  focus(true);
   session = new PlaySession({ board, panel: $('#tPanel'), ...opts });
 }
 const myMistakes = () => store.games.filter((r) => !r.excluded).flatMap((r) => r.events.filter((e) => e.cls !== 'inaccuracy').map((e) => ({ ...e, gameId: r.id, opp: r.color === 'w' ? r.black : r.white })));
@@ -228,6 +236,7 @@ function usualLine(own) {
 function walk(o) {
   stop();
   let at = 0;
+  focus(true);
   const chess = new Chess();
   const fens = [chess.fen()], moves = [];
   for (const san of o.sans) { moves.push(chess.move(san)); fens.push(chess.fen()); }
@@ -259,6 +268,7 @@ function startDeck({ motif = '', phase = '', gameId, ply } = {}) {
   }
   let i = 0, state = 'try', tries = 0;
   const token = Symbol();
+  focus(true);
   session = { token };
   const show = (html = '') => {
     const e = deck[i];
@@ -312,6 +322,7 @@ async function lichessPuzzle(theme) {
   const token = Symbol();
   session = { token };
   const panel = $('#tPanel');
+  focus(true);
   panel.innerHTML = '<div class="status">Fetching a puzzle…</div>';
   let data;
   try {
