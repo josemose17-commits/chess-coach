@@ -82,7 +82,7 @@ export function openingFromHeaders(headers) {
   if (url.includes('/openings/')) {
     const slug = url.split('/openings/')[1].split('?')[0];
     // Drop the trailing move list ("...-3.Nf3-Nc6") and keep the family name.
-    const name = slug.replace(/-\d+\..*$/, '').replace(/-/g, ' ').trim();
+    const name = slug.replace(/-?\d*\.\.\..*$/, '').replace(/-\d+\..*$/, '').replace(/-/g, ' ').trim();
     if (name) return name.split(' ').slice(0, 4).join(' ');
   }
   if (headers.Opening && headers.Opening !== '?') return headers.Opening.split(':')[0].trim();

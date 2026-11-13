@@ -5,6 +5,7 @@ import { bookMoves } from './data/openings.js';
 import { describeMove } from './coach.js';
 import { formatScore, lineSan, numbered, whiteValue, pov } from './analysis.js';
 
+export const posKey = (fen) => fen.split(' ').slice(0, 4).join(' ');
 const NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
@@ -26,7 +27,8 @@ export function sessionMarkup() {
 }
 
 export class PlaySession {
-  // opts: {board, panel, fen, userColor, elo, depth, book:{ids,surprise}|null, goal:'win'|'draw'|null, finishOn, onSolved}
+  // opts: {board, panel, fen, userColor, elo, depth, book:{ids,surprise}|null, personal:{me,opp}|null, goal, finishOn, onSolved}
+  // personal.me / personal.opp map a position key to the moves seen in the player's own games: [{uci, san, n}]
   constructor(opts) {
     Object.assign(this, { depth: 12, elo: 0, book: null, goal: null }, opts);
     this.id = Symbol();
@@ -87,7 +89,12 @@ export class PlaySession {
     let j;
     try { j = await judge(before, move.lan, this.depth); } catch (e) { this.busy = false; this.status(e.message); return; }
     if (!this.alive(token)) return;
-    const bookLine = book.length ? `<p>The main line here is <b>${esc(book.map((b) => b.san).join(' or '))}</b>${book[0].note ? ': ' + esc(book[0].note) : '.'}</p>` : '';
+    const seen = this.personal?.me.get(posKey(before));
+    const total = seen?.reduce((n, x) => n + x.n, 0);
+    const usual = seen?.[0];
+    const mineHere = seen?.find((x) => x.uci === move.lan);
+    const bookLine = seen ? `<p class="muted">${mineHere ? `You played ${esc(move.san)} in ${mineHere.n} of your ${total} game${total === 1 ? '' : 's'} from this position.` : `In your games you ${total > 1 ? 'usually ' : ''}played ${esc(usual.san)} here (${usual.n} of ${total}).`}</p>`
+      : book.length ? `<p>The main line here is <b>${esc(book.map((b) => b.san).join(' or '))}</b>${book[0].note ? ': ' + esc(book[0].note) : '.'}</p>` : '';
     if (book.length) this.leaveBook(false);
     if (this.chess.isCheckmate()) return this.finish(true, `${move.san} is checkmate.`);
     if (this.chess.isGameOver()) return this.finish(this.goal === 'draw' || !this.goal && j.vb < -100, this.chess.isStalemate() ? 'Stalemate: the game is drawn.' : 'The game is drawn.');
@@ -102,7 +109,7 @@ export class PlaySession {
       return;
     }
     if (j.cls === 'inaccuracy') this.say('ok', `<p class="tag">Inaccuracy</p>${storyHtml(j.story, bookLine)}`);
-    else if (j.same) this.say('good', `<h4>${esc(move.san)} is the engine’s first choice</h4><p>${esc(cap(describeMove(before, move.lan).slice(0, 3).join(', ')))}.</p>`);
+    else if (j.same) this.say('good', `<h4>${esc(move.san)} is the engine’s first choice</h4><p>${esc(cap(describeMove(before, move.lan).slice(0, 3).join(', ')))}.</p>${bookLine}`);
     else if (j.va >= j.vb) this.say('good', `<h4>${esc(move.san)} is a strong move</h4><p>${esc(cap(describeMove(before, move.lan).slice(0, 3).join(', ')))}. Evaluation for you: ${formatScore(j.va)}.</p>${bookLine}`);
     else this.say('good', `<h4>${esc(move.san)} is a good move</h4><p>The engine slightly prefers ${esc(lineSan(before, [j.best])[0])}, but the difference is small (${formatScore(j.va)} for you).</p>${bookLine}`);
     if (this.goal && this.checkGoal(j, move)) return;
@@ -151,6 +158,12 @@ export class PlaySession {
         if (!uci && pool.length) uci = pool[Math.floor(Math.random() * pool.length)].uci;
         if (!uci) { this.leaveBook(false); this.note = 'That is the end of the book line. From here it is a real game: play the plans of the opening and I will comment on each move.'; }
       }
+      if (!uci && this.personal && !this.outOfBook) {
+        const options = this.personal.opp.get(posKey(this.chess.fen())) || [];
+        let roll = Math.random() * options.reduce((n, o) => n + o.n, 0);
+        uci = options.find((o) => (roll -= o.n) < 0)?.uci;
+        if (!uci) { this.outOfBook = true; this.note = 'None of your opponents went this way, so from here the engine plays. Keep going: this is the middlegame your opening leads to.'; }
+      }
       uci ||= await engine.bestMove(this.chess.fen(), { elo: this.elo, movetime: this.elo ? 300 : 700 });
     } catch (e) { this.busy = false; this.status(e.message); return; }
     if (!this.alive(token)) return;
@@ -180,6 +193,7 @@ export class PlaySession {
     if (this.chess.turn() !== this.userColor && this.chess.history().length) this.chess.undo();
     this.busy = false; this.over = false; this.waiting = false; this.hintStep = 0;
     if (this.book && this.bookFor(this.chess.fen()).length) this.outOfBook = false;
+    if (this.personal) this.outOfBook = false;
     this.say(null);
     this.draw();
     if (this.chess.turn() !== this.userColor) this.opponent(); else this.status('Your move.');
