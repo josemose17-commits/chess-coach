@@ -56,7 +56,7 @@ function play(opts) {
   $('#tPanel').innerHTML = sessionMarkup();
   session = new PlaySession({ board, panel: $('#tPanel'), ...opts });
 }
-const myMistakes = () => store.games.flatMap((r) => r.events.filter((e) => e.cls !== 'inaccuracy').map((e) => ({ ...e, gameId: r.id, opp: r.color === 'w' ? r.black : r.white })));
+const myMistakes = () => store.games.filter((r) => !r.excluded).flatMap((r) => r.events.filter((e) => e.cls !== 'inaccuracy').map((e) => ({ ...e, gameId: r.id, opp: r.color === 'w' ? r.black : r.white })));
 const deckButton = (phase, label) => {
   const n = myMistakes().filter((e) => e.phase === phase).length;
   return n ? `<button type="button" data-deck="${phase}">Fix my own ${label} mistakes (${n})</button>` : '';
