@@ -2,11 +2,11 @@
 import { Chess } from 'chess.js';
 import { $, esc, store, save, judge, tabs, route, go } from '../core.js';
 import { Board } from '../board.js';
-import { PlaySession, sessionMarkup, storyHtml } from '../session.js';
+import { PlaySession, sessionMarkup, storyHtml, posKey } from '../session.js';
 import { OPENINGS, openingById } from '../data/openings.js';
 import { ENDGAMES } from '../data/endgames.js';
 import { explain, MOTIFS, describeMove } from '../coach.js';
-import { lineSan, numbered, CLASSES } from '../analysis.js';
+import { lineSan, numbered, CLASSES, formatScore, pov } from '../analysis.js';
 
 let root, board, session = null, selectTab, current = 'openings';
 const LEVELS = [[1320, 'Beginner (about 1300)'], [1600, 'Club player (about 1600)'], [1900, 'Strong club (about 1900)'], [2300, 'Master (about 2300)'], [0, 'Full strength']];
@@ -64,23 +64,47 @@ const deckButton = (phase, label) => {
 
 const SETUP = {
   openings() {
+    const mine = myOpenings();
+    const options = mine.length
+      ? `<optgroup label="Your openings (from your games)">${mine.map((o) => `<option value="${esc(o.key)}">${esc(o.label)}</option>`).join('')}</optgroup>`
+      : '';
     $('#tSetup').innerHTML = `<h2>Opening trainer</h2>
-      <label>Opening<select id="oPick">${grouped(OPENINGS, (o) => o.id, (o) => o.name)}</select></label>
+      ${mine.length ? '' : '<p class="muted">Analyse your games first (My games tab) and the openings you actually play appear here, with your real opponents’ replies. Until then you can use the built-in lines.</p>'}
+      <label>Opening<select id="oPick">${options}<optgroup label="Other openings to learn">${OPENINGS.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</optgroup></select></label>
       <div class="grid2"><label>You play<select id="oSide"><option value="w">White</option><option value="b">Black</option></select></label>${levelSelect('oLevel')}</div>
-      <label class="check"><input type="checkbox" id="oSurprise"> Opponent sometimes leaves the book, so I learn to handle sidelines</label>
+      <label class="check" id="oSurpriseBox"><input type="checkbox" id="oSurprise"> Opponent sometimes leaves the book, so I learn to handle sidelines</label>
       <div id="oIdeas" class="lesson"></div>
       <div class="row"><button type="button" class="primary" id="oDrill">Drill it</button><button type="button" id="oWalk">Walk me through the line</button>${deckButton('Opening', 'opening')}</div>`;
+    const picked = () => mine.find((o) => o.key === $('#oPick').value);
     const show = () => {
-      const o = openingById($('#oPick').value);
-      $('#oSide').value = o.side;
-      $('#oIdeas').innerHTML = `<p class="muted">${esc(numbered(new Chess().fen(), o.sans))}</p><ul>${o.ideas.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>`;
+      const own = picked();
+      $('#oSide').disabled = Boolean(own);
+      $('#oSurpriseBox').hidden = Boolean(own);
+      if (own) {
+        $('#oSide').value = own.color;
+        const line = usualLine(own);
+        $('#oIdeas').innerHTML = `<p><b>${own.games.length} game${own.games.length === 1 ? '' : 's'}</b>: ${own.win} won, ${own.draw} drawn, ${own.loss} lost. After 12 moves you stand at ${formatScore(Math.round(own.eval))} on average.</p>
+          <p class="muted">Your usual line: ${esc(numbered(new Chess().fen(), line.sans))}</p>
+          ${own.slips.length ? `<p><b>Where it goes wrong in the opening</b></p>${own.slips.slice(0, 4).map((e) => `<button type="button" class="example" data-slip="${esc(e.gameId)}" data-ply="${e.ply}"><span class="badge ${e.cls}">${CLASSES[e.cls]}</span> Move ${Math.floor(e.ply / 2) + 1} vs ${esc(e.opp)}: ${esc(e.story.title)}</button>`).join('')}` : '<p class="muted">No serious opening mistakes found in these games.</p>'}
+          <p class="muted">In the drill, the opponent plays what your real opponents played, as often as they played it. Every move you make is checked by the engine, including your usual ones.</p>`;
+      } else {
+        const o = openingById($('#oPick').value);
+        $('#oSide').value = o.side;
+        $('#oIdeas').innerHTML = `<p class="muted">${esc(numbered(new Chess().fen(), o.sans))}</p><ul>${o.ideas.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>`;
+      }
     };
     $('#oPick').onchange = show; show();
+    $('#oIdeas').onclick = (e) => {
+      const b = e.target.closest('[data-slip]');
+      if (b) { go('view', 'games'); go('review', { gameId: b.dataset.slip, ply: Number(b.dataset.ply) }); }
+    };
     $('#oDrill').onclick = () => {
+      const own = picked();
+      if (own) return play({ fen: new Chess().fen(), userColor: own.color, elo: Number($('#oLevel').value), personal: own.tree });
       const o = openingById($('#oPick').value);
       play({ fen: new Chess().fen(), userColor: $('#oSide').value, elo: Number($('#oLevel').value), book: { ids: [o.id], surprise: $('#oSurprise').checked } });
     };
-    $('#oWalk').onclick = () => walk(openingById($('#oPick').value));
+    $('#oWalk').onclick = () => { const own = picked(); walk(own ? usualLine(own) : openingById($('#oPick').value)); };
     bindDeck();
   },
   middle() {
@@ -143,6 +167,61 @@ const SETUP = {
 function bindDeck() {
   const b = $('[data-deck]', $('#tSetup'));
   if (b) b.onclick = () => startDeck({ phase: b.dataset.deck });
+}
+
+// ---- The player's own openings, rebuilt from their analysed games ------
+const PLIES = 30; // how deep into each game the personal opening tree goes
+function buildTree(games, color) {
+  const me = new Map(), opp = new Map();
+  for (const r of games) {
+    const chess = new Chess();
+    for (const san of r.sans.slice(0, PLIES)) {
+      const k = posKey(chess.fen());
+      const m = chess.move(san);
+      const map = m.color === color ? me : opp;
+      const list = map.get(k) || [];
+      const hit = list.find((x) => x.uci === m.lan);
+      if (hit) hit.n++; else list.push({ uci: m.lan, san: m.san, n: 1 });
+      map.set(k, list.sort((a, b) => b.n - a.n));
+    }
+  }
+  return { me, opp };
+}
+// Chess.com names every sub-variation; group by the opening family so each has enough games.
+export function family(name) {
+  const clean = name.replace(/\.\.\..*$/, '').trim();
+  return clean.match(/^.*?\b(Opening|Defen[cs]e|Game|Gambit|Attack|System|Indian)\b/)?.[0] || clean.split(' ').slice(0, 2).join(' ');
+}
+function myOpenings() {
+  const games = store.games.filter((r) => !r.excluded && r.sans?.length);
+  const groups = new Map();
+  const add = (key, label, color, r) => {
+    const g = groups.get(key) || { key, label, color, games: [] };
+    g.games.push(r); groups.set(key, g);
+  };
+  for (const r of games) {
+    add(`all:${r.color}`, `Everything I play as ${r.color === 'w' ? 'White' : 'Black'}`, r.color, r);
+    add(`my:${r.color}:${family(r.opening)}`, `${family(r.opening)} (as ${r.color === 'w' ? 'White' : 'Black'})`, r.color, r);
+  }
+  return [...groups.values()].map((g) => {
+    const count = (res) => g.games.filter((r) => r.result === res).length;
+    const slips = g.games.flatMap((r) => r.events.filter((e) => e.phase === 'Opening' && e.cls !== 'inaccuracy')
+      .map((e) => ({ ...e, gameId: r.id, opp: r.color === 'w' ? r.black : r.white, story: explain(e) }))).filter((e) => e.story.valid).sort((a, b) => b.loss - a.loss);
+    const evals = g.games.map((r) => Math.max(-600, Math.min(600, pov(r.evals[Math.min(24, r.evals.length - 1)], r.color))));
+    return { ...g, label: `${g.label} · ${g.games.length} game${g.games.length === 1 ? '' : 's'}`, win: count('win'), draw: count('draw'), loss: count('loss'),
+      eval: evals.reduce((a, b) => a + b, 0) / evals.length, slips, tree: buildTree(g.games, g.color) };
+  }).sort((a, b) => b.key.startsWith('all:') - a.key.startsWith('all:') || b.games.length - a.games.length);
+}
+// The line you play most often, following the most common move at every step.
+function usualLine(own) {
+  const chess = new Chess(), sans = [];
+  for (let i = 0; i < PLIES; i++) {
+    const map = chess.turn() === own.color ? own.tree.me : own.tree.opp;
+    const top = map.get(posKey(chess.fen()))?.[0];
+    if (!top) break;
+    sans.push(chess.move({ from: top.uci.slice(0, 2), to: top.uci.slice(2, 4), promotion: top.uci[4] }).san);
+  }
+  return { name: own.label, side: own.color, sans, notes: {} };
 }
 
 // ---- Step through an opening line with its notes -----------------------

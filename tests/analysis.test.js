@@ -106,3 +106,8 @@ test('a real game is graded by the real engine and rolls up into a profile', asy
     assert.ok(JSON.stringify(record).length < 6000, 'records stay small enough for browser storage');
   } finally { engine.close(); }
 });
+
+test('opening names drop move suffixes', () => {
+  assert.equal(openingFromHeaders({ ECOUrl: 'https://www.chess.com/openings/English-Opening-Agincourt-Defense...3.e3' }), 'English Opening Agincourt Defense');
+  assert.equal(openingFromHeaders({ ECOUrl: 'https://www.chess.com/openings/Sicilian-Defense-Open-2...Nc6-3.d4' }), 'Sicilian Defense Open');
+});
