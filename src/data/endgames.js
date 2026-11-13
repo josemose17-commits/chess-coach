@@ -1,0 +1,26 @@
+// Endgame lessons. `side` is the colour you play; `goal` is what correct play achieves.
+// The test suite checks every FEN against the engine.
+export const ENDGAMES = [
+  { id: 'kq', group: 'Basic checkmates', name: 'King and queen vs king', fen: '8/8/8/4k3/8/8/8/3QK3 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['Use the queen to shrink the box the king lives in: stay a knight’s move away from it.', 'When the king is on the edge, stop moving the queen and walk your own king up.', 'Always leave the king a square until the mating move, or it is stalemate.'] },
+  { id: 'kr', group: 'Basic checkmates', name: 'King and rook vs king', fen: '8/8/8/4k3/8/8/8/R3K3 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['The rook cuts the king off along a rank or file; your king does the pushing.', 'Bring your king opposite theirs (the opposition), then check with the rook to drive it back a row.', 'If the kings are not opposite, make a waiting move with the rook along its line.'] },
+  { id: 'rr', group: 'Basic checkmates', name: 'Two rooks: the ladder', fen: '8/8/8/4k3/8/8/8/R4RK1 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['One rook guards a rank, the other checks on the next: the king is pushed back like climbing a ladder.', 'If the king attacks a rook, swing it to the far side of the board and carry on.', 'No help from your own king is needed.'] },
+  { id: 'bb', group: 'Basic checkmates', name: 'Two bishops vs king', fen: '8/8/8/4k3/8/8/8/2B1KB2 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['Side by side, the bishops form a wall the king cannot cross.', 'Use your king and the bishops together to force the king into a corner.', 'Watch for stalemate when the king reaches the corner: give it one square until the end.'] },
+  { id: 'kp-win', group: 'Pawn endings', name: 'King in front of the pawn', fen: '4k3/8/4K3/4P3/8/8/8/8 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['A king on the sixth rank in front of its pawn wins no matter whose move it is.', 'Step sideways to make the enemy king give way, then take control of the queening square.', 'Do not push the pawn until your king controls the square in front of it.'] },
+  { id: 'kp-draw', group: 'Pawn endings', name: 'Holding with the opposition', fen: '8/8/8/4k3/8/8/4P3/4K3 w - - 0 1', side: 'b', goal: 'draw',
+    lesson: ['Keep your king in front of the pawn and take the opposition: kings facing each other with one square between, and the other side to move.', 'When you must retreat, go straight back so you can meet the king’s advance with the opposition again.', 'If the pawn reaches the sixth with check or your king is pushed aside, it queens.'] },
+  { id: 'breakthrough', group: 'Pawn endings', name: 'The pawn breakthrough', fen: '7k/ppp5/8/PPP5/8/8/8/7K w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['Three pawns against three, with the kings far away: one pawn can be forced through by sacrificing the other two.', 'Start with the middle pawn.', 'Whichever way it is captured, push the pawn on the other side of the capture.'] },
+  { id: 'reti', group: 'Pawn endings', name: 'Réti’s study: one king, two jobs', fen: '7K/8/k1P5/7p/8/8/8/8 w - - 0 1', side: 'w', goal: 'draw',
+    lesson: ['Your king looks hopelessly far from both pawns. Walk along the diagonal: each step approaches your pawn and the enemy pawn at once.', 'If Black stops to deal with your pawn, you catch theirs. If Black runs, your king supports your own pawn to queen.', 'A diagonal is as short as a straight line on a chessboard.'] },
+  { id: 'lucena', group: 'Rook endings', name: 'The Lucena position: building a bridge', fen: '1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1', side: 'w', goal: 'win',
+    lesson: ['Your king is stuck in front of its pawn. First drive the enemy king one more file away with a check.', 'Then lift the rook to the fourth rank: this is the bridge.', 'Walk your king out; when the checks come, block the last one with your rook.'] },
+  { id: 'philidor', group: 'Rook endings', name: 'The Philidor defence', fen: '4k3/7R/r7/3KP3/8/8/8/8 b - - 0 1', side: 'b', goal: 'draw',
+    lesson: ['Keep your rook on the sixth rank so the enemy king cannot come forward.', 'The moment the pawn advances to the sixth, drop your rook to the first rank.', 'Now the king has no pawn to hide behind and you check from behind forever.'] },
+  { id: 'wrong-bishop', group: 'Drawing ideas', name: 'The wrong rook pawn', fen: '7k/8/6K1/7P/8/8/8/5B2 b - - 0 1', side: 'b', goal: 'draw',
+    lesson: ['A bishop that does not control the queening corner cannot force your king out of it.', 'Stay in or next to the corner: g8 and h8 are all you need.', 'Remember this when you are behind: trade down to it and the game is drawn.'] },
+];

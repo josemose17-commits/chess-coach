@@ -1,55 +1,22 @@
-import {Chess} from 'chess.js';import {parseGames,playerColor,moveLoss,classify,phase,lineSAN,uciMove,aggregate} from './analysis.js';import {Engine} from './engine.js';import {explainEvent,coachingGroups} from './coach.js';
-const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const KEY='chessImprovementLab.v1';let batches=[],storageOK=true,engine=null,stop=false,busy=false,current=null,events=[],eventIndex=0,flipped=false,lessonView='before',lessonMode='learn';
-try{const raw=localStorage.getItem(KEY);if(raw){const s=JSON.parse(raw);if(s.v!==1||!Array.isArray(s.batches))throw Error();batches=s.batches}}catch{storageOK=false;$('status').textContent='Saved chess data could not be read. It has been left untouched; export your new report before leaving.'}
-function save(){if(!storageOK)return;try{localStorage.setItem(KEY,JSON.stringify({v:1,batches}))}catch{$('status').textContent+='\nStorage is full or unavailable. Export this report to keep it.'}}
-function lock(on){busy=on;for(const id of ['analyze','fetch','sample','files','pgn','username','side','depth','clear'])$(id).disabled=on;$('cancel').hidden=!on;$('progress').hidden=!on}
-function status(s){$('status').textContent=s}
-for(const [tab,panel] of [['pgnTab','pgnPanel'],['accountTab','accountPanel']])$(tab).onclick=()=>{for(const [t,p] of [['pgnTab','pgnPanel'],['accountTab','accountPanel']]){$(t).setAttribute('aria-pressed',String(t===tab));$(p).hidden=p!==panel}};
-$('files').onchange=async e=>{try{const files=[...e.target.files];if(files.reduce((s,f)=>s+f.size,0)>2_000_000)throw Error('Choose files totaling at most 2 MB.');$('pgn').value=(await Promise.all(files.map(f=>f.text()))).join('\n\n');status(`${files.length} PGN file(s) ready. Enter your name or choose your color.`)}catch(e){status(e.message)}};
-$('sample').onclick=()=>{$('pgn').value='[Event "DEMO — not your game"]\n[White "DemoWhite"]\n[Black "DemoBlack"]\n[Result "1-0"]\n\n1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0';$('side').value='b';$('username').value='DemoBlack';status('Demo loaded. Analysis will review Black’s mistakes and mark the report as a demo.')};
-async function get(url,accept='application/json'){const r=await fetch(url,{headers:{Accept:accept},signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error(`Import returned HTTP ${r.status}. Try PGN upload if access is blocked or rate-limited.`);return accept==='application/json'?r.json():r.text()}
-$('fetch').onclick=async()=>{if(busy)return;const u=$('username').value.trim();if(!/^[a-zA-Z0-9_-]{1,40}$/.test(u)){status('Enter a valid player account name first.');return}lock(true);status('Fetching recently completed public games…');try{let pgn;if($('platform').value==='lichess')pgn=await get(`https://lichess.org/api/games/user/${encodeURIComponent(u)}?max=20&ongoing=false&finished=true&clocks=false&evals=false&opening=true&perfType=bullet,blitz,rapid,classical,correspondence`,'application/x-chess-pgn');else{const {archives}=await get(`https://api.chess.com/pub/player/${encodeURIComponent(u)}/games/archives`);let list=[];for(const a of archives.slice(-3).reverse()){if(!/^https:\/\/api\.chess\.com\/pub\/player\/[a-z0-9_-]+\/games\/\d{4}\/\d{2}$/i.test(a))throw Error('Unexpected archive URL.');const d=await get(a);list.push(...d.games.filter(g=>g.rules==='chess'&&g.pgn));if(list.length>=20)break}pgn=list.sort((a,b)=>b.end_time-a.end_time).slice(0,20).map(g=>g.pgn).join('\n\n')}
-const games=parseGames(pgn);if(!games.length)throw Error('No completed standard games found.');$('pgn').value=pgn;$('side').value='auto';status(`${games.length} games imported. Select Find my weaknesses to analyze.`)}catch(e){status(e.message+' You can paste or upload PGN instead.')}finally{lock(false)}};
-$('cancel').onclick=()=>{stop=true;engine?.close()};
-async function evaluate(fen,depth,cache){if(stop)throw Error('Analysis stopped.');if(cache.has(fen))return cache.get(fen);const b=new Chess(fen);const v=b.isCheckmate()?{mate:0,pv:[],depth}:b.isDraw()?{cp:0,pv:[],depth}:await engine.evaluate(fen,depth);cache.set(fen,v);return v}
-$('analyze').onclick=async()=>{if(busy)return;let games;try{games=parseGames($('pgn').value);if(!games.length)throw Error('Add completed games first.');games=games.map(g=>({...g,color:playerColor(g.headers,$('username').value,$('side').value)}));const skipped=games.filter(g=>!g.color).length;games=games.filter(g=>g.color);if(!games.length)throw Error('Your player name was not found. Check the spelling or select White / Black.');if(skipped)status(`Skipping ${skipped} games without that player.`)}catch(e){status(e.message);return}
-lock(true);stop=false;const reports=[],depth=+$('depth').value,total=games.reduce((s,g)=>s+g.moves.filter(m=>m.color===g.color).length,0);let done=0;
-try{status('Starting Stockfish 18 on this device…');engine=new Engine();await engine.init();for(const [index,g] of games.entries()){engine.worker.postMessage('ucinewgame');const cache=new Map(),found=[];let reviewed=0;for(const [ply,m] of g.moves.entries()){if(m.color!==g.color)continue;status(`Game ${index+1}/${games.length} · move ${Math.floor(ply/2)+1} · ${done}/${total} of your moves checked`);const before=await evaluate(m.before,depth,cache),after=await evaluate(m.after,depth,cache),loss=moveLoss(before,after);if(loss>=100&&before.pv[0]&&before.pv[0]!==m.lan){const tag=classify(m.before,before.pv[0],m.after,after.pv[0]);found.push({fen:m.before,afterFen:m.after,played:m.san,playedUci:m.lan,best:before.pv[0],pv:before.pv,line:lineSAN(m.before,before.pv),reply:after.pv[0]||'',nextPlayedUci:g.moves[ply+1]?.lan||'',nextPlayedSan:g.moves[ply+1]?.san||'',replyLine:lineSAN(m.after,after.pv),loss,tag,phase:phase(m.before,ply),moveNumber:`${m.before.split(" ")[5]}${m.color==='w'?'.':'…'}`,color:m.color,mate:before.mate!==undefined||after.mate!==undefined,depth:Math.min(before.depth,after.depth)})}reviewed++;done++;$('progress').value=100*done/total}
-const id=`game-${index+1}`;reports.push({id,label:`${g.headers.White||'White'} – ${g.headers.Black||'Black'} · ${g.headers.Date||'undated'}`,reviewed,events:found,demo:(g.headers.Event||'').includes('DEMO'),timeControl:g.headers.TimeControl||'not supplied'})}
-if(stop)throw Error('Analysis stopped.');const batch={id:Date.now(),date:new Date().toISOString(),depth,username:$('username').value,side:$('side').value,reports};batches.push(batch);current=batch;save();render();status(`Review complete: ${reports.length} games, ${total} of your moves. ${reports.some(r=>r.demo)?'DEMO — these are not your personal findings.':''}`)}catch(e){status(stop?'Analysis stopped. No partial batch was saved.':e.message)}finally{engine?.close();engine=null;lock(false)}};
-function storyHTML(story){return `<h3>${esc(story.title)}</h3><p>${esc(story.summary)}</p><h4>Why this matters</h4>${story.why.map(p=>`<p>${esc(p)}</p>`).join('')}<h4>A better move</h4>${story.better.map(p=>`<p>${esc(p)}</p>`).join('')}<p class="statline">Illustrative engine line: ${esc(story.line)}</p><h4>What to do next</h4><p>${esc(story.fix)}</p>`}
-function render(){
- current??=batches.at(-1);$('historyPanel').hidden=!batches.length;
- $('history').innerHTML=batches.map(b=>`<div class="history-item"><button data-batch="${b.id}">${esc(new Date(b.date).toLocaleString())} · depth ${b.depth}</button><br>${b.reports.length} games · ${b.reports.reduce((s,r)=>s+r.reviewed,0)} moves · ${b.reports.reduce((s,r)=>s+r.events.length,0)} review positions ${b.reports.some(r=>r.demo)?'· DEMO':''}</div>`).join('');
- document.querySelectorAll('[data-batch]').forEach(e=>e.onclick=()=>{current=batches.find(b=>b.id===+e.dataset.batch);render()});if(!current)return;
- const a=aggregate(current.reports);events=a.events.filter(e=>explainEvent(e).valid);const groups=coachingGroups(events,a.games),first=groups[0],demo=current.reports.some(r=>r.demo);
- $('gamesN').textContent=a.games;$('movesN').textContent=a.moves;$('patternsN').textContent=groups.length;
- $('overview').innerHTML=`<p class="eyebrow">${demo?'DEMO BATCH · NOT YOUR RESULTS':'YOUR COACH’S EXPLANATION'}</p><h2>${first?esc(first.examples[0].story.title):'No verified review examples found'}</h2><p>${first?esc(first.explanation):'This pass did not produce a verified teaching example. It does not prove mistake-free play; a deeper review or a larger sample may help.'}</p>${first?`<p><b>Example:</b> ${esc(first.examples[0].event.gameLabel)}. ${esc(first.examples[0].story.summary)}</p><p><b>Your next habit:</b> ${esc(first.examples[0].story.fix)}</p>`:''}<p class="hint">Depth ${current.depth}. Examples describe moves and legal continuations; they do not infer your thoughts or intentions.</p>`;
- const index=e=>events.findIndex(x=>x===e);
- const exampleCard=({event:e,story},i)=>`<article class="teaching-example"><p class="tag">EXAMPLE ${i+1} · ${esc(e.phase||'Position')} · ${esc(e.gameLabel)}</p>${storyHTML(story)}<div class="row"><button data-event="${index(e)}" data-mode="learn">Show this on the board</button><button data-event="${index(e)}" data-mode="practice">Practice this position</button></div></article>`;
- $('patterns').innerHTML=groups.map((g,i)=>`<section class="panel pattern"><p class="tag">FOCUS ${i+1} · ${g.games} GAME(S) · ${g.count} EXAMPLES</p><h2>${esc(g.title)}</h2><p>${esc(g.explanation)}</p>${g.examples.slice(0,3).map(exampleCard).join('')}${g.examples.length>3?`<details><summary>See ${g.examples.length-3} more examples</summary>${g.examples.slice(3).map((e,i)=>exampleCard(e,i+3)).join('')}</details>`:''}</section>`).join('');
- document.querySelectorAll('[data-event]').forEach(e=>e.onclick=()=>{eventIndex=+e.dataset.event;lessonMode=e.dataset.mode;show()});
- $('review').hidden=!groups.length;if(groups.length){eventIndex=events.indexOf(first.examples[0].event);lessonMode='learn';show(false)}
+import { $, $$, route, go } from './core.js';
+import { init as initGames } from './views/games.js';
+import { init as initTrain } from './views/train.js';
+import { init as initMasters } from './views/masters.js';
+
+const views = { games: initGames, train: initTrain, masters: initMasters };
+const ready = new Set();
+
+function show(name) {
+  if (!views[name]) name = 'games';
+  for (const section of $$('main > [data-view]')) section.hidden = section.dataset.view !== name;
+  for (const link of $$('nav [data-go]')) link.setAttribute('aria-current', link.dataset.go === name ? 'page' : 'false');
+  if (!ready.has(name)) { ready.add(name); views[name]($(`main > [data-view="${name}"]`)); }
+  if (location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
+  window.scrollTo(0, 0);
 }
 
-const glyph={k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
-function draw(fen,marked=[]){const b=new Chess(fen),files=flipped?'hgfedcba':'abcdefgh',ranks=flipped?'12345678':'87654321';$('board').innerHTML=[...ranks].flatMap(r=>[...files].map(f=>{const square=f+r,p=b.get(square);return`<div role="gridcell" aria-label="${square}${p?' '+(p.color==='w'?'White':'Black')+' '+({p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'}[p.type]):' empty'}" class="square ${(f.charCodeAt(0)+ +r)%2?'light':'dark'} ${p?(p.color==='w'?'white':'black'):''} ${marked.includes(square)?'mark':''}">${p?glyph[p.type]:''}<span class="coord">${square}</span></div>`})).join('')}
-function drawView(){const e=events[eventIndex],story=explainEvent(e),view=story.views[lessonView]||story.views.before;if(!view)return;draw(view.fen,view.marks);$('boardCaption').textContent=view.caption;document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===lessonView)))}
-function revealLesson(){const story=explainEvent(events[eventIndex]);$('answer').hidden=false;$('answer').innerHTML=storyHTML(story);$('boardViews').hidden=!story.valid;document.querySelector('[data-view="reply"]').disabled=!story.views.reply;$('reveal').hidden=true}
-function show(scroll=true){
- const e=events[eventIndex];if(!e)return;const story=explainEvent(e);lessonView='before';
- $('positionLabel').textContent=`${e.gameLabel} · ${e.moveNumber} · ${e.color==='w'?'White':'Black'} to move`;
- $('answer').hidden=true;$('feedback').textContent='';$('guess').value='';$('prev').disabled=eventIndex===0;$('next').disabled=eventIndex===events.length-1;
- $('exercise').textContent=story.practice;$('lessonMode').textContent=lessonMode==='practice'?'PRACTICE · ANSWER HIDDEN':'WALK THROUGH THE EXAMPLE';
- $('reveal').hidden=false;$('boardViews').hidden=true;drawView();if(lessonMode==='learn')revealLesson();
- if(scroll)$('review').scrollIntoView({behavior:'smooth',block:'start'});
-}
-$('prev').onclick=()=>{eventIndex--;show(false)};$('next').onclick=()=>{eventIndex++;show(false)};$('flip').onclick=()=>{flipped=!flipped;drawView()};
-$('boardViews').onclick=e=>{const button=e.target.closest('[data-view]');if(!button)return;lessonView=button.dataset.view;drawView()};
-$('check').onclick=()=>{const e=events[eventIndex],b=new Chess(e.fen);let m;try{m=b.move($('guess').value.trim())}catch{}$('feedback').textContent=!m?'That move is not legal in the original position.':m.lan===e.best?'You found the engine’s leading move. Now explain which reply it prevents or what it achieves.':'Legal candidate. It differs from this search’s leading move; it may still be playable. Compare the opponent’s response to each.'};
-$('reveal').onclick=()=>revealLesson();
-
-$('export').onclick=()=>{const a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify({v:1,batches},null,2)],{type:'application/json'}));a.href=url;a.download='chess-improvement-history.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-$('clear').onclick=()=>{if(!confirm('Clear saved chess reviews in this browser? Export first if you want to keep them.'))return;localStorage.removeItem(KEY);batches=[];current=null;location.reload()};
-render();
+route('view', show);
+// Training can be opened from the report ("Train this"), so make sure the view exists first.
+route('train', (arg) => { show('train'); go('train-open', arg); });
+for (const link of $$('nav [data-go]')) link.onclick = (e) => { e.preventDefault(); show(link.dataset.go); };
+show(location.hash.slice(1) || 'games');
