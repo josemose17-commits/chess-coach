@@ -13,4 +13,4 @@ http.createServer(async (req, res) => {
     res.setHeader('Content-Type', TYPES[path.extname(file)] || 'application/octet-stream');
     res.end(await readFile(file));
   } catch { res.writeHead(404); res.end('Not found'); }
-}).listen(port, '0.0.0.0', () => console.log(`Chess Coach on http://localhost:${port}`));
+}).listen(port, '0.0.0.0', () => console.log(`Play Like the Greats on http://localhost:${port}`));

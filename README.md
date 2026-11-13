@@ -1,4 +1,4 @@
-# Chess Coach
+# Play Like the Greats
 
 A browser app that reviews your Chess.com games, explains what went wrong, and lets you train it.
 
