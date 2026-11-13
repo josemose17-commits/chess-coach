@@ -1,30 +1,42 @@
-# Chess Improvement Lab
+# Play Like the Greats
 
-Replaces the Music Characteristics web page with completed-game chess review. Import PGN (up to 20 games / 2 MB), Lichess public games, or recent Chess.com archives. Select your exact player name or a fixed color. No games have been analyzed for you until you import them. The labeled demo is never personal evidence.
+A browser app that reviews your Chess.com games, explains what went wrong, and lets you train it.
+
+- **My games** – enter a Chess.com username; recent games are fetched from the public Chess.com API and checked move by move with Stockfish 18. The report ranks your recurring weaknesses (hanging pieces, missed tactics, opening principles, time trouble, failing to convert…), shows mistakes per phase and results per opening, and lists every missed move with a plain-language reason. Each one opens on a board with your move, the better move and both continuations. PGN paste is also supported.
+- **Train** – an opening trainer (28 lines with ideas; drill against book replies, optional surprise sidelines, then play on against the engine), tactics from your own mistakes, themed Lichess puzzles, middlegame sparring from opening tabiyas, 11 endgame lessons played against the engine, and "any position" from a FEN. Every move you make is graded and explained.
+- **Masters** – 12 annotated classics (Morphy, Anderssen, Rubinstein, Capablanca, Tal, Fischer, Kasparov, Carlsen…). Step through them, ask the engine about any move, or play "guess the move" and get scored.
 
 ## Run
 
-Node 22+: `npm ci`, `npm test`, `npm run build`, `npm run dev`. Open the served page, not a file:// URL. `dist/` is the website. All analysis uses the locally served Stockfish 18 lite single-threaded worker (depth 10/14); no analysis service receives PGNs. Account import makes requests to the selected platform. Platform failures show errors and PGN remains available.
+Node 22+.
 
-Engine comparisons evaluate the position before and after each selected-player move with consistent depth. Scores are oriented to the player; at least 100cp loss creates a review candidate. Mate scores are separate transitions, not actual centipawn values. Thresholds, phase labels and coaching categories are app heuristics. Checks/captures in engine leading moves support broad forcing-move labels; this does not prove a fork, pin, hanging piece, opening-theory error or clock-management diagnosis.
+```bash
+npm ci
+npm test
+npm run build
+npm run dev
+```
 
-Findings show real positions, actual moves, engine alternatives, opponent replies and short practice habits. Candidate-move drills accept legal moves and distinguish the engine's first move without falsely marking every alternative wrong. A single game is not called a recurring weakness. Review batches stay separate with dates/depth for comparison; history exports as JSON. Only completed standard chess is supported. Automatic imports are bounded to 20 games (Chess.com: last three available archive months).
+Open http://localhost:3000 (the page must be served, not opened as a file). `dist/` is the complete static site.
 
-## Deployment and naming
+## How it works
 
-The page title and product branding are Chess Improvement Lab. The GitHub repository remains `Music-Characteristics` so its source identity/old URLs are retained. The new Pages workflow validates PRs without deployment; pushes to the existing default branch deploy `dist/` when GitHub Pages is configured for Actions. No repository rename or hosting-settings mutation is attempted.
+- `src/analysis.js` – PGN parsing, move grading (loss of winning chances: 5% inaccuracy, 10% mistake, 20% blunder), weakness profile.
+- `src/coach.js` – turns an engine comparison into a reason by checking the board: mates, hanging pieces, forks, pins, skewers, discovered attacks, opening principles, king safety, endgame technique. It only states what the position shows.
+- `src/session.js`, `src/views/` – the trainer and the three screens. `src/board.js` – the board. `src/data/` – openings, endgames, master games.
+- Tests replay every opening line and master game for legality and check game results and endgame goals against the real engine.
 
-The original Python music tool and CSV are preserved in `legacy/`; prior web content remains in Git history. Chess storage uses its own `chessImprovementLab.v1` key. Unreadable or future data is not automatically overwritten. User-initiated Clear only removes this chess key.
+Analysis runs entirely in the browser; analysed games are saved in `localStorage` on the device. Engine verdicts are depth-limited (the lite single-threaded Stockfish build), so treat close calls as guidance rather than proof.
 
-## Dependencies and source
+## Deployment
 
-- chess.js 1.4.0 (BSD-2-Clause): https://github.com/jhlywa/chess.js
-- Stockfish.js 18.0.8 / Stockfish 18 (GPL-3.0): https://github.com/nmrugg/stockfish.js/tree/v18.0.8
+`.github/workflows/chess.yml` tests and builds on pull requests, and deploys `dist/` to GitHub Pages on pushes to the branch named in the workflow.
 
-Stockfish is an unmodified separately loaded worker. Its license and corresponding source link ship in `dist/engine/`. Lockfile pins packages. No other runtime network dependency is required after page assets load. The lite engine is depth-limited, not an exhaustive proof of best play.
+## Credits
 
-## Explanation-first lessons
+- [chess.js](https://github.com/jhlywa/chess.js) 1.4.0 (BSD-2-Clause)
+- [Stockfish.js](https://github.com/nmrugg/stockfish.js/tree/v18.0.8) 18.0.8 (GPL-3.0), shipped unmodified as a separate worker with its licence in `dist/engine/`
+- Piece artwork by Cburnett and Rfc1394 (CC BY-SA 3.0) via [cm-chessboard](https://github.com/shaack/cm-chessboard)
+- Puzzles from the [Lichess](https://lichess.org/training) puzzle API
 
-Each review candidate is now replayed through chess.js to generate a position-specific lesson: what you played, the legal opponent response, why the line matters, the engine alternative, and a practice habit. Immediate mates are verified as checkmate; material-loss examples count the shown short exchange using conventional piece values, separately from engine evaluation. A blocking explanation is given only when the alternative actually occupies the relevant sliding-piece line. Quiet comparisons explicitly decline unsupported named causes or claims about the player's thoughts.
-
-Main reports display up to three worked examples per pattern immediately; remaining examples stay accessible. Distinct-game counts distinguish a recurring pattern from a single-game observation. Every example has a board walkthrough (before / after your move / reply / alternative) and an optional answer-hidden exercise. New reports retain the next move actually played; historical and engine-only replies are worded differently. Existing saved reviews gain explanations without reanalysis when their stored positions/moves verify. Invalid saved examples decline a diagnosis.
+The original Python playlist tool is kept in `legacy/`.

@@ -2,7 +2,7 @@ name: Chess checks and Pages
 on:
   pull_request:
   push:
-    branches: [claude/lucid-curie-f54d2b]
+    branches: [claude/lucid-curie-f54d2b, claude/nice-rubin-c35nej]
   workflow_dispatch:
 permissions:
   contents: read
