@@ -27,6 +27,7 @@ export function init(el) {
       <label>Depth<select id="depth"><option value="10">Fast</option><option value="12" selected>Standard</option><option value="14">Deep</option></select></label>
       <button class="primary" id="analyse">Analyse my games</button>
     </form>
+    <label class="check"><input type="checkbox" id="ratedOnly"> Rated games only (skips casual games where you may be messing around)</label>
     <details class="pgn"><summary>Or paste PGN instead</summary>
       <label>Your name exactly as it appears in the PGN<input id="pgnName" autocomplete="off"></label>
       <label>PGN text<textarea id="pgn" rows="5" placeholder="Paste one or more games"></textarea></label>
@@ -83,7 +84,7 @@ async function importChessCom() {
   if (running) return;
   const name = $('#username').value.trim();
   if (!/^[\w-]{2,40}$/.test(name)) return status('Enter your Chess.com username (letters, numbers, - and _).');
-  const want = Number($('#count').value), timeClass = $('#timeClass').value;
+  const want = Number($('#count').value), timeClass = $('#timeClass').value, ratedOnly = $('#ratedOnly').checked;
   status('Fetching your games from Chess.com…');
   let found = [];
   try {
@@ -91,7 +92,7 @@ async function importChessCom() {
     for (const url of archives.slice(-12).reverse()) {
       if (!url.startsWith('https://api.chess.com/pub/player/')) continue;
       const { games = [] } = await getJson(url);
-      found.push(...games.filter((g) => g.rules === 'chess' && g.pgn && (!timeClass || g.time_class === timeClass)));
+      found.push(...games.filter((g) => g.rules === 'chess' && g.pgn && (!timeClass || g.time_class === timeClass) && (!ratedOnly || g.rated)));
       if (found.length >= want) break;
     }
   } catch (e) { return status(e.message === 'Failed to fetch' ? 'Could not reach Chess.com. Check your connection and try again.' : e.message); }
@@ -148,7 +149,7 @@ function records() {
 }
 
 function refresh() {
-  const list = records();
+  const list = records().filter((r) => !r.excluded);
   profile = list.length ? buildProfile(list, explain) : null;
   renderReport();
 }
@@ -183,6 +184,10 @@ function weaknessCards() {
 
 function renderReport() {
   const box = $('#report');
+  if (!profile && records().length) {
+    box.innerHTML = `<section class="panel empty"><h2>Every game is excluded</h2><p>Include at least one game below to see your report.</p></section>${gamesPanel()}`;
+    return;
+  }
   if (!profile) {
     box.innerHTML = `<section class="panel empty"><h2>No games analysed yet</h2><p>Your report will show your recurring weaknesses, every missed move with its explanation, and how you do in each opening and phase of the game. Analysis runs in your browser and takes a few minutes for 20 games.</p></section>`;
     return;
@@ -223,16 +228,32 @@ function renderReport() {
     </div>
     <div id="missed"></div>
   </section>
-  <section class="panel"><div class="row between"><h2>Your games</h2><button type="button" id="clearGames">Clear saved games</button></div>
-    <div class="games">${records().map((r) => `<button type="button" class="game" data-game="${esc(r.id)}" data-ply="0">
+  ${gamesPanel()}`;
+  for (const [k, v] of Object.entries(filters)) { const s = $(`[data-filter="${k}"]`, box); if (s) s.value = v; }
+  renderMissed();
+}
+
+// A game that is far messier than your usual play is probably not a serious one.
+function oddOnes(list) {
+  const acc = list.map((r) => r.accuracy).sort((a, b) => a - b);
+  const median = acc[Math.floor(acc.length / 2)];
+  return new Set(list.filter((r) => list.length >= 5 && r.accuracy < median - 8).map((r) => r.id));
+}
+
+function gamesPanel() {
+  const list = records();
+  const odd = oddOnes(list);
+  const out = list.filter((r) => r.excluded).length;
+  return `<section class="panel"><div class="row between"><h2>Your games</h2><button type="button" id="clearGames">Clear saved games</button></div>
+    <p class="muted">Played a game for fun or blundered on purpose? Exclude it and it no longer counts towards your weaknesses, missed moves or training positions.${out ? ` ${out} game${out === 1 ? ' is' : 's are'} excluded.` : ''}${odd.size ? ' Games marked “unusual” were much less accurate than your normal play.' : ''}</p>
+    <div class="games">${list.map((r) => `<div class="gamerow ${r.excluded ? 'excluded' : ''}"><button type="button" class="game" data-game="${esc(r.id)}" data-ply="0">
       <span class="res ${r.result}">${resultWord[r.result]}</span>
       <span><b>${esc(r.color === 'w' ? r.black : r.white)}</b>${r.oppRating ? ` (${r.oppRating})` : ''} · as ${r.color === 'w' ? 'White' : 'Black'}</span>
       <span class="muted">${esc(r.opening)}</span>
       <span class="muted">${esc(r.date)} · ${esc(r.timeClass)}</span>
-      <span>${r.accuracy} acc · ${r.events.filter((e) => e.cls === 'blunder').length} blunders</span></button>`).join('')}</div>
+      <span>${r.accuracy} acc · ${r.events.filter((e) => e.cls === 'blunder').length} blunders${odd.has(r.id) && !r.excluded ? ' <span class="badge mistake">unusual</span>' : ''}</span></button>
+      <button type="button" data-exclude="${esc(r.id)}" aria-pressed="${Boolean(r.excluded)}">${r.excluded ? 'Include' : 'Exclude'}</button></div>`).join('')}</div>
   </section>`;
-  for (const [k, v] of Object.entries(filters)) { const s = $(`[data-filter="${k}"]`, box); if (s) s.value = v; }
-  renderMissed();
 }
 
 function renderMissed() {
@@ -248,6 +269,13 @@ function renderMissed() {
 function onReportClick(e) {
   const t = e.target.closest('button');
   if (!t) return;
+  if (t.dataset.exclude !== undefined) {
+    const r = store.games.find((g) => g.id === t.dataset.exclude);
+    r.excluded = !r.excluded; save();
+    const y = window.scrollY;
+    refresh();
+    return window.scrollTo(0, y);
+  }
   if (t.dataset.game !== undefined) return openReview(t.dataset.game, Number(t.dataset.ply));
   if (t.id === 'more') { shown += 25; return renderMissed(); }
   if (t.dataset.showMotif) { filters = { motif: t.dataset.showMotif, phase: '', cls: '' }; shown = 25; renderReport(); return $('#missedPanel').scrollIntoView({ behavior: 'smooth' }); }
